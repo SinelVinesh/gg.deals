@@ -1,7 +1,50 @@
 from bs4 import BeautifulSoup
 import json
-from pprint import pprint
 import requests
+
+workingShop = ["GAMIVO", "Eneba", "Kinguin", "G2A", "CDKeys.com", "Yuplay"]
+
+
+class GamePrice:
+    def __init__(self, shop, price):
+        self.shop = shop
+        self.price = price
+        self.working = self.shop in workingShop
+
+
+class Game:
+    def __init__(self, game_id, name, detail_link, prices):
+        self.game_id = game_id
+        self.name = name
+        self.detail_link = detail_link
+        self.prices = prices
+
+    def add_price(self, shop, price):
+        self.prices.append(GamePrice(shop, price))
+
+    def get_best_price(self):
+        game_price = {}
+        best_price = 1000000
+        for price in self.prices:
+            if price.price < best_price and price.working:
+                game_price = price
+        return game_price
+
+    def __str__(self):
+        str = f"{self.name}\n"
+        best_price = self.get_best_price()
+        str += f"Best Working Price: {best_price.price} at {best_price.shop}\n"
+        str += "Prices:\n"
+        for price in self.prices:
+            str += f"[{"OK" if price.working else "NOK"}] {price.shop}: {price.price}\n"
+        return str
+
+
+class GameEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Game):
+            return obj.__dict__
+        return super().default(obj)
 
 
 def getSoup(link):
@@ -20,102 +63,61 @@ def getSoup_headers(link, headers):
 
 def get_page_games(link):
     soup = getSoup(link)
-    game_ids = []
-    soup = soup.find("div", {"class": "grid-list"})
-    games = soup.findAll("div", {"class": "grid-layout"})
-    for game in games:
-        game_id = game["data-container-game-id"]
-        game_ids.append(game_id)
-        print(game_id)
-    return game_ids
+    games = []
+    game_divs = soup.findAll("div", {"data-container-game-id": True})
+    for game_div in game_divs:
+        game_id = game_div["data-container-game-id"]
+        game_link = f"https://gg.deals/us{game_div.find("a")["href"]}"
+        game_name = game_div.find("a", {"class": "title-inner"}).text
+        game = Game(game_id, game_name, game_link, [])
+        games.append(game)
+    return games
 
 
-def get_price(game_id):
-    link = "https://gg.deals/us/games/offers/{}/?GameOffersSearch%5BloadMore%5D=1".format(
-        game_id)
+def get_price(game: Game):
+    link = game.detail_link
     headers = {"X-Requested-With": "XMLHttpRequest"}
     soup = getSoup_headers(link, headers=headers)
-    #CDKEYS, ENEBA, MMOGA
-    keyshops = soup.findAll("div", {"class": "game-deals-item"})
-    ret = ["", "", ""]
-    name = soup.find("div", {"class": "ellipsis title"})['title']
-    ret[0] = name
+    keyshops = soup.findAll("div", {"data-shop-name": True})
+    prices = []
     for keyshop in keyshops:
-        shop = keyshop.find("div", {"class": "deal-hoverable action-wrap"})
-        shop = shop.find("img")['alt']
-        price = keyshop.find("span", {"class": "price"})
-        price = price.find("span", {"class": "numeric"}).text[2:]
-        if shop == 'CDKeys.com' or shop == 'Eneba' or shop == 'MMOGA US':
-            ret[1] = shop
-            ret[2] = price
-            break
-    return ret
+        shop = keyshop["data-shop-name"]
+        price = float(keyshop["data-deal-value"])
+        prices.append(GamePrice(shop, price))
+    return prices
 
 
 def get_games():
     games = {}
-    games["game_ids"] = []
-    for i in range(1, 41):
-        link = "https://gg.deals/games/?page={}".format(i)
-        games["game_ids"].extend(get_page_games(link))
+    games["games"] = []
+    for i in range(1, 2):
+        link = f"https://gg.deals/games/?page=${i}"
+        games["games"].extend(get_page_games(link))
 
-    with open("games.json", "w") as f:
-        json.dump(games, f)
+    export_games(games)
 
 
 def get_prices():
-    game_details = {}
+    games = []
     with open("games.json") as f:
-        games = json.load(f)
+        games_raw = json.load(f)["games"]
 
-    for game in games["game_ids"]:
+    for game_raw in games_raw:
         try:
-            game_details[game] = get_price(game)
-            print(game_details[game])
-        except:
-            pass
+            game = Game(game_raw["game_id"], game_raw["name"], game_raw["detail_link"], [])
+            game.prices = get_price(game)
+            games.append(game)
+            print(game)
+        except Exception as e:
+            print(e)
+    export_games(games_raw)
 
-    with open("game_details.json", "w") as f:
-        json.dump(game_details, f)
 
-
-def make_final():
-    with open("game_details.json") as f:
-        details = json.load(f)
-    with open("final.json") as f:
-        final_json = json.load(f)
-
-    ctr = final_json['ctr']
-    final = final_json['details']
-    for key_details, value_details in details.items():
-        flag = 0
-        for (index, value_final) in enumerate(final):
-            if key_details == value_final[4]:
-                flag = 1
-                if not value_details[1] == '':
-                    row = value_final
-                    row[2] = value_details[1]
-                    row[3] = value_details[2]
-                    final_json['details'][index] = row
-                break
-        if flag == 0:
-            if not value_details[1] == '':
-                row = ['', '', '', '', '']
-                row[0] = ctr
-                row[1] = value_details[0]
-                row[2] = value_details[1]
-                row[3] = value_details[2]
-                row[4] = key_details
-                final_json['details'].append(row)
-                ctr = ctr+1
-
-    final_json['ctr'] = ctr
-    with open("final.json", "w") as f:
-        json.dump(final_json, f)
+def export_games(games):
+    with open("games.json", "w") as f:
+        json.dump(games, f, cls=GameEncoder)
 
 
 def driver():
     get_games()
     get_prices()
-    # print(get_price("80011"))
-    make_final()
