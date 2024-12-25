@@ -1,3 +1,6 @@
+import random
+import time
+
 from bs4 import BeautifulSoup
 import json
 import requests
@@ -31,13 +34,13 @@ class Game:
         return game_price
 
     def __str__(self):
-        str = f"{self.name}\n"
+        representation = f"{self.name}\n"
         best_price = self.get_best_price()
-        str += f"Best Working Price: {best_price.price} at {best_price.shop}\n"
-        str += "Prices:\n"
+        representation += f"Best Working Price: {best_price.price} at {best_price.shop}\n"
+        representation += "Prices:\n"
         for price in self.prices:
-            str += f"[{"OK" if price.working else "NOK"}] {price.shop}: {price.price}\n"
-        return str
+            representation += f"[{"OK" if price.working else "NOK"}] {price.shop}: {price.price}\n"
+        return representation
 
 
 class GameEncoder(json.JSONEncoder):
@@ -47,14 +50,14 @@ class GameEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def getSoup(link):
+def get_soup(link):
     req = requests.get(link)
     html = req.content
     soup = BeautifulSoup(html, "html.parser")
     return soup
 
 
-def getSoup_headers(link, headers):
+def get_soup_headers(link, headers):
     req = requests.get(link, headers=headers)
     html = req.content
     soup = BeautifulSoup(html, "html.parser")
@@ -62,7 +65,7 @@ def getSoup_headers(link, headers):
 
 
 def get_page_games(link):
-    soup = getSoup(link)
+    soup = get_soup(link)
     games = []
     game_divs = soup.findAll("div", {"data-container-game-id": True})
     for game_div in game_divs:
@@ -77,7 +80,7 @@ def get_page_games(link):
 def get_price(game: Game):
     link = game.detail_link
     headers = {"X-Requested-With": "XMLHttpRequest"}
-    soup = getSoup_headers(link, headers=headers)
+    soup = get_soup_headers(link, headers=headers)
     keyshops = soup.findAll("div", {"data-shop-name": True})
     prices = []
     for keyshop in keyshops:
@@ -88,11 +91,11 @@ def get_price(game: Game):
 
 
 def get_games():
-    games = {}
-    games["games"] = []
+    games = {"games": []}
     for i in range(1, 2):
         link = f"https://gg.deals/games/?page=${i}"
         games["games"].extend(get_page_games(link))
+        time.sleep(random.randint(1, 3) / 2)
 
     export_games(games)
 
@@ -110,6 +113,7 @@ def get_prices():
             print(game)
         except Exception as e:
             print(e)
+        time.sleep(random.randint(1, 3) / 2)
     export_games(games_raw)
 
 
